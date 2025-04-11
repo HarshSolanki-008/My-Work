@@ -5,10 +5,10 @@ a = 1
 e = 0
 P = 2 * np.pi
 G = 1
-delta = 0.01
+delta = 0.1
 a2 = a + delta
 del_t = (1/500)*P
-tmax = 10*P
+tmax = 100*P
 eta = 0.01
 t = np.arange(0, tmax, del_t)
 
