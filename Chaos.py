@@ -8,7 +8,7 @@ G = 1
 delta = 0.1
 a2 = a + delta
 del_t = (1/500)*P
-tmax = 100*P
+tmax = 1000*P
 eta = 0.01
 t = np.arange(0, tmax, del_t)
 
@@ -107,8 +107,8 @@ def Euler(G, n, masses, positions, velocities, del_t_init, tmax):
                         jerk[j] += G * masses[k] * (v_vec / r_mag**3 - 3 * np.dot(v_vec, rvec) * rvec / r_mag**5)
 
         # Adaptive time step
-        del_t = adaptive_time_step(acc, jerk, del_t_init)
-        at.append(del_t)
+        # del_t = adaptive_time_step(acc, jerk, del_t_init)
+        # at.append(del_t)
         
         E.append(KE + PE)
         J.append(angular_momentum)
@@ -207,8 +207,8 @@ def Euler_Cromer(G, n, masses, positions, velocities, del_t_init, tmax):
                     jerk[k] -= G * masses[j] * (v_vec / r_mag**3 - 3 * np.dot(v_vec, rvec) * rvec / r_mag**5)
 
         # Time step update
-        del_t = adaptive_time_step(acc, jerk, del_t_init)
-        at.append(del_t)
+        # del_t = adaptive_time_step(acc, jerk, del_t_init)
+        # at.append(del_t)
 
         # Energy and angular momentum
         E.append(KE + PE)
@@ -310,8 +310,8 @@ def Leap_frog(G, n, masses, positions, velocities, del_t_init, tmax):
                         )
 
         # Adaptive step update
-        del_t = adaptive_time_step(acc_half, jerk, del_t_init)
-        at.append(del_t)
+        # del_t = adaptive_time_step(acc_half, jerk, del_t_init)
+        # at.append(del_t)
 
         E.append(KE + PE)
         J.append(angular_momentum)
@@ -462,8 +462,8 @@ def RK4(positions, velocities, masses, G, del_t, n):
 
     acc = compute_accelerations(positions)
 
-    del_t = adaptive_time_step(acc, jerk, del_t_init)
-    at.append(del_t)
+    # del_t = adaptive_time_step(acc, jerk, del_t_init)
+    # at.append(del_t)
     
 
     for i in range(1, len(t)):
@@ -708,13 +708,31 @@ p_RK,v_RK,E_RK,J_RK,e_RK,a_RK,at_RK,log_E_RK,log_e_RK,log_a_RK = RK4(positions, 
 # plt.legend()
 # plt.show()
 
-plt.figure("Trajectories using RK4 Integrator (1000 Orbits)")
 for i in range(n):
     plt.plot(p_RK[:, i, 0], p_RK[:, i, 1], label=f"Body {i+1}")
 plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
 plt.xlabel("x")
 plt.ylabel("y")
 plt.legend()
-plt.title("RK Integrator")
+plt.title("RK Integrator Fixed Time Step")
+plt.show()
+
+plt.subplot(1, 2, 1)
+plt.plot(t, a_RK, label="semi-major axis")
+plt.xlabel("t")
+plt.ylabel("a")
+plt.xlim(1, 60)
+plt.ylim(0.4950, 0.5050)
+plt.title("Semi-major axis")
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(t, a_RK, label="eccentricity")
+plt.xlabel("t")
+plt.ylabel("e")
+plt.xlim(1, 60)
+plt.ylim(0.4950, 0.5050)
+plt.title("eccentricity")
+plt.legend()
 
 plt.show()
