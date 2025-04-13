@@ -5,7 +5,7 @@ a = 1
 e = 0
 P = 2 * np.pi
 G = 1
-delta = 0.1
+delta = 0.055
 a2 = a + delta
 del_t = (1/500)*P
 tmax = 1000*P
@@ -462,8 +462,8 @@ def RK4(positions, velocities, masses, G, del_t, n):
 
     acc = compute_accelerations(positions)
 
-    # del_t = adaptive_time_step(acc, jerk, del_t_init)
-    # at.append(del_t)
+    del_t = adaptive_time_step(acc, jerk, del_t_init)
+    at.append(del_t)
     
 
     for i in range(1, len(t)):
@@ -718,20 +718,18 @@ plt.title("RK Integrator Fixed Time Step")
 plt.show()
 
 plt.subplot(1, 2, 1)
-plt.plot(t, a_RK, label="semi-major axis")
+plt.plot(t, a_RK[:,0], label="semi-major axis 1")
+plt.plot(t, a_RK[:,1], label="semi-major axis 2")
 plt.xlabel("t")
 plt.ylabel("a")
-plt.xlim(1, 60)
-plt.ylim(0.4950, 0.5050)
 plt.title("Semi-major axis")
 plt.legend()
 
 plt.subplot(1, 2, 2)
-plt.plot(t, a_RK, label="eccentricity")
+plt.plot(t, e_RK[:,0], label="eccentricity 1")
+plt.plot(t, e_RK[:,1], label="eccentricity 2")
 plt.xlabel("t")
 plt.ylabel("e")
-plt.xlim(1, 60)
-plt.ylim(0.4950, 0.5050)
 plt.title("eccentricity")
 plt.legend()
 
