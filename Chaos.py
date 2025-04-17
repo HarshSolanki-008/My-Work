@@ -5,10 +5,10 @@ a = 1
 e = 0
 P = 2 * np.pi
 G = 1
-delta = 0.055
+delta = 0.05
 a2 = a + delta
 del_t = (1/500)*P
-tmax = 1000*P
+tmax = 100*P
 eta = 0.01
 t = np.arange(0, tmax, del_t)
 
@@ -498,7 +498,7 @@ def RK4(positions, velocities, masses, G, del_t, n):
                 v_vec = vel[i-1,j] - vel[i-1,k]
 
                 mu = G * (masses[j] + masses[k])  
-                e_vec = (J[i-1]**2 / (mu * r_mag)) * r_vec - (r_vec / r_mag)
+                e_vec = (J[i-1]/ (mu)) * v_vec - (r_vec / r_mag)
                 e_mag = np.linalg.norm(e_vec)
 
                 PE -= G * masses[j] * masses[k] / r_mag
