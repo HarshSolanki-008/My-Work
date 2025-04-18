@@ -453,13 +453,12 @@ def RK4(positions, velocities, masses, G, del_t, n):
     E = np.zeros(len(t))
     J = np.zeros(len(t))
 
-    num_pairs = n * (n - 1) // 2
-    e = np.zeros((len(t), num_pairs))
-    a = np.zeros((len(t), num_pairs))
-    Log_e = np.zeros((len(t), num_pairs))
-    Log_a = np.zeros((len(t), num_pairs))
+    e = np.zeros((len(t),n-1))
+    a = np.zeros((len(t),n-1))
     
     Log_E = np.zeros(len(t))
+    Log_e = np.zeros((len(t),n-1))
+    Log_a = np.zeros((len(t),n-1))  
 
     acc = compute_accelerations(positions)
 
@@ -490,42 +489,24 @@ def RK4(positions, velocities, masses, G, del_t, n):
         KE = 0
         PE = 0
         J[i] = 0
-        pair_idx = 0
-        for j in range(n):
-            for k in range(j+1, n):
+        for j in range(1,n):
+            KE += 0.5 * masses[j] * np.dot(velocities[j], velocities[j])
+            J[i] += masses[j] * (positions[j, 0] * velocities[j, 1] - positions[j, 1] * velocities[j, 0])
+            for k in range(j + 1, n):
                 r_vec = positions[k] - positions[j]
-                v_vec = velocities[k] - velocities[j]
                 r_mag = np.linalg.norm(r_vec)
-                v_mag = np.linalg.norm(v_vec)
+                v_vec = vel[i-1,j] - vel[i-1,k]
 
-                if r_mag == 0:
-                    continue  # Avoid division by zero
-
-                mu = G * (masses[j] + masses[k])
-
-                # Convert 2D vectors to 3D for cross product
-                r_vec_3d = np.append(r_vec, 0)
-                v_vec_3d = np.append(v_vec, 0)
-                h_vec = np.cross(r_vec_3d, v_vec_3d)
-                h = np.linalg.norm(h_vec)
-
-                e_vec = (np.cross(v_vec_3d, h_vec) / mu) - (r_vec_3d / r_mag)
-                e_mag = np.linalg.norm(e_vec)
-
-                energy = 0.5 * v_mag**2 - mu / r_mag
-                a_pair = -mu / (2 * energy)
-
-                # Save the values
-                e[i-1, pair_idx] = e_mag
-                a[i-1, pair_idx] = a_pair
-
-                if i > 1:
-                    Log_e[i][pair_idx] = np.log10(abs((e_mag - e[0][pair_idx]) / e[0][pair_idx]))
-                    Log_a[i][pair_idx] = np.log10(abs((a_pair - a[0][pair_idx]) / a[0][pair_idx]))
-
-                pair_idx += 1
-
-
+                mu = G * (masses[j] + masses[k])  
+                e_vec1 = (J[i-1]/ (mu)) * v_vec[0] - (r_vec[0] / r_mag)
+                e_vec2 = -(J[i-1]/ (mu)) * v_vec[1] - (r_vec[1] / r_mag)
+                #print(f"e_vec1: {e_vec1}, e_vec2: {e_vec2}")
+                e_mag = (e_vec1**2 + e_vec2**2)
+                #print(f"emag: {e_mag}")
+                e[i-1, j] = e_mag 
+                a[i-1, j] = (J[i-1]**2 / (mu)) / (1 - e_mag)
+                Log_e[i][j] = np.log10(abs((e_mag - e[0][j])/e[0][j]))
+                Log_a[i][j] = np.log10(abs((a[i][j] - a[0][j])/a[0][j]))
 
                 PE -= G * masses[j] * masses[k] / r_mag
 
