@@ -497,16 +497,18 @@ def RK4(positions, velocities, masses, G, del_t, n):
                 r_mag = np.linalg.norm(r_vec)
                 v_vec = vel[i-1,j] - vel[i-1,k]
 
-                mu = G * (masses[j] + masses[k])  
-                e_vec = (J[i-1]/ (mu)) * v_vec - (r_vec / r_mag)
-                e_mag = np.linalg.norm(e_vec)
+                if j != k and k>j:
+                    mu = G * (masses[j] + masses[k])  
+                    e_vec1 = (J[i-1]/ (mu)) * v_vec[0] - (r_vec[1] / r_mag)
+                    e_vec2 = -(J[i-1]/ (mu)) * v_vec[0] - (r_vec[1] / r_mag)
+                    e_mag = (e_vec1**2 + e_vec2**2)
+                    #print(f"emag: {e_mag}")
+                    e[i-1, j] = e_mag 
+                    a[i-1, j] = (J[i-1]**2 / (mu)) / np.abs(1 - e_mag)
+                    Log_e[i][j] = np.log10(abs((e_mag - e[0][j])/e[0][j]))
+                    Log_a[i][j] = np.log10(abs((a[i][j] - a[0][j])/a[0][j]))
 
                 PE -= G * masses[j] * masses[k] / r_mag
-
-                e[i-1, j] = e_mag 
-                a[i-1, j] = (J[i-1]**2 / (mu)) / (1 - e_mag**2)
-                Log_e[i][j] = np.log10(abs((e_mag - e[0][j])/e[0][j]))
-                Log_a[i][j] = np.log10(abs((a[i][j] - a[0][j])/a[0][j]))
 
                 rvec = r_vec / r_mag
                 jerk[j] += G * masses[k] * (v_vec / r_mag ** 3 - 3 * np.dot(v_vec, rvec) * rvec / r_mag ** 5)
