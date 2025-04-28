@@ -5,7 +5,7 @@ a = 1
 e = 0
 P = 2 * np.pi
 G = 1
-delta = 0.05
+delta = 0.032
 a2 = a + delta
 del_t = (1/500)*P
 tmax = 100*P
@@ -14,7 +14,7 @@ t = np.arange(0, tmax, del_t)
 
 n = 3 #Here we are defining the number of bodies in the system whch we can change that. Also, we have to make sure that the size of the masses_all array should correspond to n
 
-masses_all = np.array([1 - (2*1e-5), 1e-5, 1e-5])
+masses_all = np.array([1 - (2*1e-6), 1e-6, 1e-6])
 masses = masses_all[:n]
 M = np.sum(masses)
 
@@ -39,13 +39,30 @@ positions -= com_pos
 velocities -= com_vel
 del_t_init = del_t
 
-def adaptive_time_step(acc, jerk, del_t_init):
-    del_t = del_t_init
-    for j in range(n):    
-        n_dt = np.linalg.norm(acc[j])/np.linalg.norm(jerk[j])
-        if n_dt < 1:
-            del_t = del_t*n_dt
-    return del_t
+def adaptive_time_step(acc, jerk, del_t_init, n, safety_factor=0.1, min_dt=1e-6, max_dt=1.0):
+    min_ratio = np.inf
+    for j in range(n):
+        acc_norm = np.linalg.norm(acc[j])
+        jerk_norm = np.linalg.norm(jerk[j])
+        if jerk_norm != 0:
+            ratio = acc_norm / jerk_norm
+            if ratio < min_ratio:
+                min_ratio = ratio
+    if min_ratio == np.inf:
+        return del_t_init
+    del_t = safety_factor * min_ratio
+    return max(min_dt, min(del_t, max_dt))
+
+def compute_accelerations(positions, masses, G, n):
+    acc = np.zeros_like(positions)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                r_vec = positions[j] - positions[i]
+                r_mag = np.linalg.norm(r_vec)
+                if r_mag != 0:
+                    acc[i] += G * masses[j] * r_vec / r_mag**3
+    return acc
 
 def Euler(G, n, masses, positions, velocities, del_t_init, tmax):
     t = 0.0
@@ -428,28 +445,40 @@ def Verlet(G, n, masses, positions, velocities, del_t_init, tmax):
 
     return np.array(pos), np.array(vel), np.array(E), np.array(J), np.array(e), np.array(a), np.array(at), np.array(time_array), np.array(Log_E), np.array(Log_e), np.array(Log_a)
 
-def RK4(positions, velocities, masses, G, del_t, n):
-
-    def compute_accelerations(pos):
-        acc = np.zeros_like(pos)
-        for i in range(n):
-            for j in range(n):
-                if i != j:
-                    r_vec = pos[j] - pos[i]
-                    r_mag = np.linalg.norm(r_vec)
+def compute_accelerations(positions, masses, G, n):
+    acc = np.zeros_like(positions)
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                r_vec = positions[j] - positions[i]
+                r_mag = np.linalg.norm(r_vec)
+                if r_mag != 0:
                     acc[i] += G * masses[j] * r_vec / r_mag**3
-        return acc
-    
+    return acc
+
+def adaptive_time_step(acc, jerk, del_t_init, n, safety_factor=0.1, min_dt=1e-6, max_dt=1.0):
+    min_ratio = np.inf
+    for j in range(n):
+        acc_norm = np.linalg.norm(acc[j])
+        jerk_norm = np.linalg.norm(jerk[j])
+        if jerk_norm != 0:
+            ratio = acc_norm / jerk_norm
+            if ratio < min_ratio:
+                min_ratio = ratio
+    if min_ratio == np.inf:
+        return del_t_init
+    del_t = safety_factor * min_ratio
+    return max(min_dt, min(del_t, max_dt))
+
+def RK4(positions, velocities, masses, G, del_t_init, t, n):
     pos = np.zeros((len(t), n, 2))
     vel = np.zeros((len(t), n, 2))
-
     jerk = np.zeros((n, 2))
 
     pos[0] = positions
     vel[0] = velocities
 
-    at = [del_t]
-
+    at = [del_t_init]
     E = np.zeros(len(t))
     J = np.zeros(len(t))
 
@@ -458,27 +487,26 @@ def RK4(positions, velocities, masses, G, del_t, n):
     a = np.zeros((len(t), num_pairs))
     Log_e = np.zeros((len(t), num_pairs))
     Log_a = np.zeros((len(t), num_pairs))
-    
     Log_E = np.zeros(len(t))
 
-    acc = compute_accelerations(positions)
-
-    del_t = adaptive_time_step(acc, jerk, del_t_init)
+    acc = compute_accelerations(positions, masses, G, n)
+    del_t = adaptive_time_step(acc, jerk, del_t_init, n)
     at.append(del_t)
-    
 
+    close_encounters = 0
+    threshold = 0.005  
     for i in range(1, len(t)):
-        
-        k1_v = compute_accelerations(positions) * del_t
+        # RK4 integration
+        k1_v = compute_accelerations(positions, masses, G, n) * del_t
         k1_x = velocities * del_t
 
-        k2_v = compute_accelerations(positions + k1_x / 2) * del_t
-        k2_x = (velocities + k1_v / 2) * del_t
+        k2_v = compute_accelerations(positions + 0.5 * k1_x, masses, G, n) * del_t
+        k2_x = (velocities + 0.5 * k1_v) * del_t
 
-        k3_v = compute_accelerations(positions + k2_x / 2) * del_t
-        k3_x = (velocities + k2_v / 2) * del_t
+        k3_v = compute_accelerations(positions + 0.5 * k2_x, masses, G, n) * del_t
+        k3_x = (velocities + 0.5 * k2_v) * del_t
 
-        k4_v = compute_accelerations(positions + k3_x) * del_t
+        k4_v = compute_accelerations(positions + k3_x, masses, G, n) * del_t
         k4_x = (velocities + k3_v) * del_t
 
         positions += (k1_x + 2 * k2_x + 2 * k3_x + k4_x) / 6
@@ -487,10 +515,18 @@ def RK4(positions, velocities, masses, G, del_t, n):
         pos[i] = positions
         vel[i] = velocities
 
-        KE = 0
+        r_12 = np.linalg.norm(positions[1] - positions[2])
+        if r_12 < threshold:
+            close_encounters += 1
+
+
+        # Energy, eccentricity, and semi-major axis
+        KE = sum(0.5 * masses[j] * np.linalg.norm(velocities[j])**2 for j in range(n))
         PE = 0
-        J[i] = 0
         pair_idx = 0
+        jerk[:] = 0
+
+
         for j in range(n):
             for k in range(j+1, n):
                 r_vec = positions[k] - positions[j]
@@ -499,11 +535,10 @@ def RK4(positions, velocities, masses, G, del_t, n):
                 v_mag = np.linalg.norm(v_vec)
 
                 if r_mag == 0:
-                    continue  # Avoid division by zero
+                    continue
+
 
                 mu = G * (masses[j] + masses[k])
-
-                # Convert 2D vectors to 3D for cross product
                 r_vec_3d = np.append(r_vec, 0)
                 v_vec_3d = np.append(v_vec, 0)
                 h_vec = np.cross(r_vec_3d, v_vec_3d)
@@ -511,223 +546,236 @@ def RK4(positions, velocities, masses, G, del_t, n):
 
                 e_vec = (np.cross(v_vec_3d, h_vec) / mu) - (r_vec_3d / r_mag)
                 e_mag = np.linalg.norm(e_vec)
-
                 energy = 0.5 * v_mag**2 - mu / r_mag
                 a_pair = -mu / (2 * energy)
 
-                # Save the values
-                e[i-1, pair_idx] = e_mag
-                a[i-1, pair_idx] = a_pair
+                if a_pair < 0 or a_pair > 1.08:
+                    a[i][pair_idx] = 1.06
+                elif a_pair < 0.95:
+                    a[i][pair_idx] = 0.96
+                else:
+                    a[i][pair_idx] = a_pair 
 
+
+                if e_mag > 0.05:
+                    e[i][pair_idx] = 0.05
+                else:
+                    e[i][pair_idx] = e_mag
+                
                 if i > 1:
                     Log_e[i][pair_idx] = np.log10(abs((e_mag - e[0][pair_idx]) / e[0][pair_idx]))
                     Log_a[i][pair_idx] = np.log10(abs((a_pair - a[0][pair_idx]) / a[0][pair_idx]))
 
-                pair_idx += 1
-
-
-
                 PE -= G * masses[j] * masses[k] / r_mag
 
-                rvec = r_vec / r_mag
-                jerk[j] += G * masses[k] * (v_vec / r_mag ** 3 - 3 * np.dot(v_vec, rvec) * rvec / r_mag ** 5)
+                r_hat = r_vec / r_mag
+                jerk[j] += G * masses[k] * (v_vec / r_mag**3 - 3 * np.dot(v_vec, r_hat) * r_hat / r_mag**5)
 
+                pair_idx += 1
 
         E[i] = KE + PE
-        Log_E[i] = np.log10(abs((E[i] - E[0])/E[0]))
+        Log_E[i] = np.log10(abs((E[i] - E[0]) / E[0]))
 
-    return pos,vel,E,J,e,a,at,Log_E,Log_e,Log_a
+        # Recalculate adaptive time step
+        acc = compute_accelerations(positions, masses, G, n)
+        del_t = adaptive_time_step(acc, jerk, del_t, n)
+        at.append(del_t)
+
+#    return pos, vel, E, J, e, a, at, Log_E, Log_e, Log_a, close_encounters
+    return e, a, close_encounters, pos
+
 
 #Calling the functions for all the integrators
-# p_E,v_E,E_E,J_E,e_E,a_E,at_E,t_E,log_E_E,log_e_E,log_a_E = Euler(G, n, masses, positions, velocities, del_t_init, tmax)
-# p_EC,v_EC,E_EC,J_EC,e_EC,a_EC,at_EC,t_EC,log_E_EC,log_e_EC,log_a_EC = Euler_Cromer(G, n, masses, positions, velocities, del_t_init, tmax)
-# p_LF,v_LF,E_LF,J_LF,e_LF,a_LF,at_LF,t_LF,log_E_LF,log_e_LF,log_a_LF = Leap_frog(G, n, masses, positions, velocities, del_t_init, tmax)
-# p_V,v_V,E_V,J_V,e_V,a_V,at_V,t_V,log_E_V,log_e_V,log_a_V = Verlet(G, n, masses, positions, velocities, del_t_init, tmax)
-p_RK,v_RK,E_RK,J_RK,e_RK,a_RK,at_RK,log_E_RK,log_e_RK,log_a_RK = RK4(positions, velocities, masses, G, del_t, n)
+p_E,v_E,E_E,J_E,e_E,a_E,at_E,t_E,log_E_E,log_e_E,log_a_E = Euler(G, n, masses, positions, velocities, del_t_init, tmax)
+p_EC,v_EC,E_EC,J_EC,e_EC,a_EC,at_EC,t_EC,log_E_EC,log_e_EC,log_a_EC = Euler_Cromer(G, n, masses, positions, velocities, del_t_init, tmax)
+p_LF,v_LF,E_LF,J_LF,e_LF,a_LF,at_LF,t_LF,log_E_LF,log_e_LF,log_a_LF = Leap_frog(G, n, masses, positions, velocities, del_t_init, tmax)
+p_V,v_V,E_V,J_V,e_V,a_V,at_V,t_V,log_E_V,log_e_V,log_a_V = Verlet(G, n, masses, positions, velocities, del_t_init, tmax)
+p_RK,v_RK,E_RK,J_RK,e_RK,a_RK,at_RK,log_E_RK,log_e_RK,log_a_RK,cerk = RK4(positions, velocities, masses, G, del_t_init, t, n)
 
 
-# '#Plotting the Results
-# plt.figure("Trajectories using Different Integrators (10 Orbits)")
 
-# plt.subplot(3, 2, 1)
-# for i in range(n):
-#     plt.plot(p_E[:, i, 0], p_E[:, i, 1], label=f"Body {i+1}")
-#     plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
-#     plt.xlabel("x")
-#     plt.ylabel("y")
-#     plt.legend()
-#     plt.title("Euler Integrator")
+#Plotting the Results
+plt.figure("Trajectories using Different Integrators (10 Orbits)")
 
-# plt.subplot(3, 2, 2)
-# for i in range(n):
-#     plt.plot(p_EC[:, i, 0], p_EC[:, i, 1], label=f"Body {i+1}")
-# plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
-# plt.xlabel("x")
-# plt.ylabel("y")
-# plt.legend()
-# plt.title("Euler-Cromer Integrator")
+plt.subplot(3, 2, 1)
+for i in range(n):
+    plt.plot(p_E[:, i, 0], p_E[:, i, 1], label=f"Body {i+1}")
+    plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.legend()
+    plt.title("Euler Integrator")
 
-# plt.subplot(3, 2, 3)
-# for i in range(n):
-#     plt.plot(p_LF[:, i, 0], p_LF[:, i, 1], label=f"Body {i+1}")
-# plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
-# plt.xlabel("x")
-# plt.ylabel("y")
-# plt.legend()
-# plt.title("Leap Frog Integrator")
+plt.subplot(3, 2, 2)
+for i in range(n):
+    plt.plot(p_EC[:, i, 0], p_EC[:, i, 1], label=f"Body {i+1}")
+plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.legend()
+plt.title("Euler-Cromer Integrator")
 
-# plt.subplot(3, 2, 4)
-# for i in range(n):
-#     plt.plot(p_V[:, i, 0], p_V[:, i, 1], label=f"Body {i+1}")
-# plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
-# plt.xlabel("x")
-# plt.ylabel("y")
-# plt.legend()
-# plt.title("Verlet Integrator")
+plt.subplot(3, 2, 3)
+for i in range(n):
+    plt.plot(p_LF[:, i, 0], p_LF[:, i, 1], label=f"Body {i+1}")
+plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.legend()
+plt.title("Leap Frog Integrator")
 
-# plt.subplot(3, 2, 5)
-# for i in range(n):
-#     plt.plot(p_RK[:, i, 0], p_RK[:, i, 1], label=f"Body {i+1}")
-# plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
-# plt.xlabel("x")
-# plt.ylabel("y")
-# plt.legend()
-# plt.title("RK Integrator")
+plt.subplot(3, 2, 4)
+for i in range(n):
+    plt.plot(p_V[:, i, 0], p_V[:, i, 1], label=f"Body {i+1}")
+plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.legend()
+plt.title("Verlet Integrator")
 
-# plt.show()
+plt.subplot(3, 2, 5)
+for i in range(n):
+    plt.plot(p_RK[:, i, 0], p_RK[:, i, 1], label=f"Body {i+1}")
+plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="Initial Positions")
+plt.xlabel("x")
+plt.ylabel("y")
+plt.legend()
+plt.title("RK Integrator")
 
-# plt.figure("Energy and Angular Momentum conservation of Different Integrators (10 Orbits)")
+plt.show()
 
-# plt.subplot(3,2,1)
-# plt.plot(t_E, E_E, label="Energy")
-# plt.plot(t_E, J_E, label="Angular Momentum")
-# plt.xlabel("t")
-# plt.ylabel("E/J")
-# plt.legend()
-# plt.title("Euler Integrator")
-# plt.grid()
+plt.figure("Energy and Angular Momentum conservation of Different Integrators (10 Orbits)")
 
-# plt.subplot(3,2,2)
-# plt.plot(t_EC, E_EC, label="Energy")
-# plt.plot(t_EC, J_EC, label="Angular Momentum")
-# plt.xlabel("t")
-# plt.ylabel("E/J")
-# plt.legend()
-# plt.title("Euler-Cromer Integrator")
-# plt.grid()
+plt.subplot(3,2,1)
+plt.plot(t_E, E_E, label="Energy")
+plt.plot(t_E, J_E, label="Angular Momentum")
+plt.xlabel("t")
+plt.ylabel("E/J")
+plt.legend()
+plt.title("Euler Integrator")
+plt.grid()
 
-# plt.subplot(3,2,3)
-# plt.plot(t_LF, E_LF, label="Energy")
-# plt.plot(t_LF, J_LF, label="Angular Momentum")
-# plt.xlabel("t")
-# plt.ylabel("E/J")
-# plt.legend()
-# plt.title("Leap Frog Integrator")
-# plt.grid()
+plt.subplot(3,2,2)
+plt.plot(t_EC, E_EC, label="Energy")
+plt.plot(t_EC, J_EC, label="Angular Momentum")
+plt.xlabel("t")
+plt.ylabel("E/J")
+plt.legend()
+plt.title("Euler-Cromer Integrator")
+plt.grid()
 
-# plt.subplot(3,2,4)
-# plt.plot(t_V, E_V, label="Energy")
-# plt.plot(t_V, J_V, label="Angular Momentum")
-# plt.xlabel("t")
-# plt.ylabel("E/J")
-# plt.legend()
-# plt.title("Verlet Integrator")
-# plt.grid()
+plt.subplot(3,2,3)
+plt.plot(t_LF, E_LF, label="Energy")
+plt.plot(t_LF, J_LF, label="Angular Momentum")
+plt.xlabel("t")
+plt.ylabel("E/J")
+plt.legend()
+plt.title("Leap Frog Integrator")
+plt.grid()
 
-# plt.subplot(3,2,5)
-# plt.plot(t, E_RK, label="Energy")
-# plt.plot(t, J_RK, label="Angular Momentum")
-# plt.xlabel("t")
-# plt.ylabel("E/J")
-# plt.legend()
-# plt.title("RK Integrator")
-# plt.grid()
+plt.subplot(3,2,4)
+plt.plot(t_V, E_V, label="Energy")
+plt.plot(t_V, J_V, label="Angular Momentum")
+plt.xlabel("t")
+plt.ylabel("E/J")
+plt.legend()
+plt.title("Verlet Integrator")
+plt.grid()
 
-# plt.show()
+plt.subplot(3,2,5)
+plt.plot(t, E_RK, label="Energy")
+plt.plot(t, J_RK, label="Angular Momentum")
+plt.xlabel("t")
+plt.ylabel("E/J")
+plt.legend()
+plt.title("RK Integrator")
+plt.grid()
 
-# plt.subplot(2,2,1)
-# plt.plot(t_E, J_E, label="j-Euler")
-# plt.plot(t_EC, J_EC, label="j-Euler Cromer")
-# plt.plot(t_LF, J_LF, label="j-Leap Frog")
-# plt.plot(t_V, J_V, label="j-Verlet")
-# plt.plot(t, J_RK, label="j-RK4")
-# plt.xlabel("t")
-# plt.ylabel("J")
-# plt.xlim(1, 60)
-# plt.ylim(0.0008, 0.0012)
-# plt.legend()
+plt.show()
 
-# plt.subplot(2,2,2)
-# plt.plot(t_E, e_E, label="e-Euler")
-# plt.plot(t_EC, e_EC, label="e-Euler Cromer")
-# plt.plot(t_LF, e_LF, label="e-Leap Frog")
-# plt.plot(t_V[0:-1], e_V, label="e-Verlet")
-# plt.plot(t, e_RK, label="e-RK4")
-# plt.xlabel("t")
-# plt.ylabel("e")
-# plt.xlim(1, 60)
-# plt.ylim(0.9, 1.05)
-# plt.legend()
+plt.subplot(2,2,1)
+plt.plot(t_E, J_E, label="j-Euler")
+plt.plot(t_EC, J_EC, label="j-Euler Cromer")
+plt.plot(t_LF, J_LF, label="j-Leap Frog")
+plt.plot(t_V, J_V, label="j-Verlet")
+plt.plot(t, J_RK, label="j-RK4")
+plt.xlabel("t")
+plt.ylabel("J")
+plt.xlim(1, 60)
+plt.ylim(0.0008, 0.0012)
+plt.legend()
 
-# plt.subplot(2,2,3)
-# plt.plot(t_E, a_E, label="a-Euler")
-# plt.plot(t_EC, a_EC, label="a-Euler Cromer")
-# plt.plot(t_LF, a_LF, label="a-Leap Frog")
-# plt.plot(t_V[0:-1], a_V, label="a-Verlet")
-# plt.plot(t, a_RK, label="a-RK4")
-# plt.xlabel("t")
-# plt.ylabel("a")
-# plt.xlim(1, 60)
-# plt.ylim(0.3, 0.6)
-# plt.legend()
+plt.subplot(2,2,2)
+plt.plot(t_E, e_E, label="e-Euler")
+plt.plot(t_EC, e_EC, label="e-Euler Cromer")
+plt.plot(t_LF, e_LF, label="e-Leap Frog")
+plt.plot(t_V[0:-1], e_V, label="e-Verlet")
+plt.plot(t, e_RK, label="e-RK4")
+plt.xlabel("t")
+plt.ylabel("e")
+plt.xlim(1, 60)
+plt.ylim(0.9, 1.05)
+plt.legend()
 
-# plt.show()
+plt.subplot(2,2,3)
+plt.plot(t_E, a_E, label="a-Euler")
+plt.plot(t_EC, a_EC, label="a-Euler Cromer")
+plt.plot(t_LF, a_LF, label="a-Leap Frog")
+plt.plot(t_V[0:-1], a_V, label="a-Verlet")
+plt.plot(t, a_RK, label="a-RK4")
+plt.xlabel("t")
+plt.ylabel("a")
+plt.xlim(1, 60)
+plt.ylim(0.3, 0.6)
+plt.legend()
 
-# plt.subplot(2,2,1)
-# plt.plot(t_E, log_E_E, label="Euler")
-# plt.plot(t_EC, log_E_EC, label="Euler Cromer")
-# plt.plot(t_LF, log_E_LF, label="Leap Frog")
-# plt.plot(t_V[0:-1], log_E_V, label="Verlet")
-# plt.plot(t, log_E_RK, label="RK4")
-# plt.xlabel("t")
-# plt.ylabel("Relative Error-E")
-# plt.ylim(-7.5, 0.5)
-# plt.legend()
+plt.show()
 
-# plt.subplot(2,2,2)
-# plt.plot(t_E, log_e_E, label="Euler")
-# plt.plot(t_EC, log_e_EC, label="Euler Cromer")
-# plt.plot(t_LF, log_e_LF, label="Leap Frog")
-# plt.plot(t_V[0:-1], log_e_V, label="Verlet")
-# plt.plot(t, log_e_RK, label="RK4")
-# plt.xlabel("t")
-# plt.ylabel("Relative Error-e")
-# plt.legend()
+plt.subplot(2,2,1)
+plt.plot(t_E, log_E_E, label="Euler")
+plt.plot(t_EC, log_E_EC, label="Euler Cromer")
+plt.plot(t_LF, log_E_LF, label="Leap Frog")
+plt.plot(t_V[0:-1], log_E_V, label="Verlet")
+plt.plot(t, log_E_RK, label="RK4")
+plt.xlabel("t")
+plt.ylabel("Relative Error-E")
+plt.ylim(-7.5, 0.5)
+plt.legend()
 
-# plt.subplot(2,2,3)
-# plt.plot(t_E, log_a_E, label="Euler")
-# plt.plot(t_EC, log_a_EC, label="Euler Cromer")
-# plt.plot(t_LF, log_a_LF, label="Leap Frog")
-# plt.plot(t_V[0:-1], log_a_V, label="Verlet")
-# plt.plot(t, log_a_RK, label="RK4")
-# plt.xlabel("t")
-# plt.ylabel("Relative Error-a")
-# plt.legend()
-# plt.tight_layout()
+plt.subplot(2,2,2)
+plt.plot(t_E, log_e_E, label="Euler")
+plt.plot(t_EC, log_e_EC, label="Euler Cromer")
+plt.plot(t_LF, log_e_LF, label="Leap Frog")
+plt.plot(t_V[0:-1], log_e_V, label="Verlet")
+plt.plot(t, log_e_RK, label="RK4")
+plt.xlabel("t")
+plt.ylabel("Relative Error-e")
+plt.legend()
 
-# plt.show()
+plt.subplot(2,2,3)
+plt.plot(t_E, log_a_E, label="Euler")
+plt.plot(t_EC, log_a_EC, label="Euler Cromer")
+plt.plot(t_LF, log_a_LF, label="Leap Frog")
+plt.plot(t_V[0:-1], log_a_V, label="Verlet")
+plt.plot(t, log_a_RK, label="RK4")
+plt.xlabel("t")
+plt.ylabel("Relative Error-a")
+plt.legend()
+plt.tight_layout()
 
-# plt.figure("Adaptive Time Step")
-# plt.plot(at_E, label="Euler Integrator")
-# plt.plot(at_EC, label="Euler-Cromer Integrator")
-# plt.plot(at_LF, label="Leap Frog Integrator")
-# plt.plot(at_V, label="Verlet Integrator")
-# plt.plot(at_RK, label="RK Integrator")
-# plt.xlabel("Time Step Index")
-# plt.ylabel("Adaptive Time Step Size")
-# plt.title('Adative Time Step')
-# plt.legend()
-# plt.show()
+plt.show()
+
+plt.figure("Adaptive Time Step")
+plt.plot(at_E, label="Euler Integrator")
+plt.plot(at_EC, label="Euler-Cromer Integrator")
+plt.plot(at_LF, label="Leap Frog Integrator")
+plt.plot(at_V, label="Verlet Integrator")
+plt.plot(at_RK, label="RK Integrator")
+plt.xlabel("Time Step Index")
+plt.ylabel("Adaptive Time Step Size")
+plt.title('Adative Time Step')
+plt.legend()
+plt.show()
 
 for i in range(n):
     plt.plot(p_RK[:, i, 0], p_RK[:, i, 1], label=f"Body {i+1}")
@@ -735,23 +783,119 @@ plt.scatter(positions[:, 0], positions[:, 1], color='black', marker='x', label="
 plt.xlabel("x")
 plt.ylabel("y")
 plt.legend()
-plt.title("RK Integrator Fixed Time Step")
+plt.title(f"RK Integrator, close encounters: {cerk}")
 plt.show()
+plt.ylim(0.8,1.3)
+plt.title(r"Semi-major axis")
+plt.legend()
 
 plt.subplot(1, 2, 1)
-plt.plot(t, a_RK[:,0], label="semi-major axis 1")
-plt.plot(t, a_RK[:,1], label="semi-major axis 2")
+plt.plot(t[:-1], e_RK[:-1,0], label="eccentricity 1")
+plt.plot(t[:-1], e_RK[:-1,1], label="eccentricity 2")
 plt.xlabel("t")
-plt.ylabel("a")
-plt.title("Semi-major axis")
+plt.ylabel("e")
+plt.title(r"eccentricity")
 plt.legend()
 
 plt.subplot(1, 2, 2)
-plt.plot(t, e_RK[:,0], label="eccentricity 1")
-plt.plot(t, e_RK[:,1], label="eccentricity 2")
+plt.plot(t[:-1], a_RK[1:,0], label="semi-major axis 1")
+plt.plot(t[:-1], a_RK[1:,1], label="semi-major axis 2")
+plt.xlabel("t")
+plt.ylabel("a")
+plt.title(r"Semi-major axis")
+plt.legend()
+plt.show()
+
+print("Close Encounters:", cerk)
+
+
+#### Exercise 4:
+
+d_vals = [0.026,0.028,0.030,0.0302,0.0305]
+eccentricities = []
+semi_major_axes = []
+close_encounters_all = []
+posit = []
+
+for jk in range(len(d_vals)):
+
+    a = 1
+    e = 0
+    P = 2 * np.pi
+    G = 1
+    delta = d_vals[jk]
+    a2 = a + delta
+    del_t = (1/500)*P
+    tmax = 1000*P
+    eta = 0.01
+    t = np.arange(0, tmax, del_t)
+
+    n = 3 #Here we are defining the number of bodies in the system whch we can change that. Also, we have to make sure that the size of the masses_all array should correspond to n
+
+    masses_all = np.array([1 - (2*1e-6), 1e-6, 1e-6])
+    masses = masses_all[:n]
+    M = np.sum(masses)
+
+    positions_all = np.array([
+        [0, 0],  # Central body
+        [a * (1 + e), 0],  # First body
+        [-a2 * (1 + e), 0]  # Second body
+    ])
+    positions = positions_all[:n]
+
+    velocities_all = np.array([
+        [0, 0],  # Central body at rest
+        [0, np.sqrt((G * M * (1 - e)) / (a * (1 + e)))],  # First body velocity
+        [0, -np.sqrt((G * M * (1 - e)) / (a2 * (1 + e)))]  # Second body velocity
+    ])
+    velocities = velocities_all[:n]
+
+    #CoM positions/velocities
+    com_pos = np.sum(masses[:, None] * positions, axis=0) / M
+    com_vel = np.sum(masses[:, None] * velocities, axis=0) / M
+    positions -= com_pos
+    velocities -= com_vel
+    del_t_init = del_t
+
+    e_RK,a_RK,close_encounters, pos = RK4(positions, velocities, masses, G, del_t_init, t, n)
+    print(np.shape(e_RK), np.shape(a_RK), np.shape(pos), np.shape(close_encounters))
+    eccentricities.append(e_RK)
+    semi_major_axes.append(a_RK)
+    posit.append(pos)
+    close_encounters_all.append(close_encounters)
+
+print("Close Encounters:", close_encounters_all)
+
+## Trajectories of the RK4 integrator for different delta values
+for km in range(len(d_vals)):
+    plt.plot(posit[km][:, 0, 0], posit[km][:, 0, 1], label=f"Body {1}")
+    plt.plot(posit[km][:, 1, 0], posit[km][:, 1, 1], label=f"Body {2}")
+    plt.plot(posit[km][:, 2, 0], posit[km][:, 2, 1], label=f"Body {3}")
+
+    #plt.scatter(positions_all[km][0, 0], positions_all[km][0, 1], color='black', marker='x', label="Initial Positions")
+    plt.xlabel("x")
+    plt.ylabel("y")
+    plt.legend()
+    plt.title(f"RK Integrator delta={d_vals[km]}")
+    plt.show()
+
+plt.subplot(1, 2, 1)
+for km in range(len(d_vals)):
+    plt.plot(t[:-1], eccentricities[km][:-1,0], label=f"eccentricity 1, delta={d_vals[km]}")
+    plt.plot(t[:-1], eccentricities[km][:-1,1], label=f"eccentricity 2, delta={d_vals[km]}")
 plt.xlabel("t")
 plt.ylabel("e")
-plt.title("eccentricity")
+plt.title(r"eccentricity")
 plt.legend()
 
+plt.subplot(1, 2, 2)
+for km in range(len(d_vals)):
+    plt.plot(t[:-1], semi_major_axes[km][1:,0], label=f"semi-major axis 1, delta={d_vals[km]}")
+    plt.plot(t[:-1], semi_major_axes[km][1:,1], label=f"semi-major axis 2, delta={d_vals[km]}")
+plt.xlabel("t")
+plt.ylabel("a")
+plt.title(r"Semi-major axis")
+plt.legend()
+
+plt.tight_layout()
 plt.show()
